@@ -1,0 +1,13 @@
+▁SA B A :2.5 #0.15 @Saba
+▁S A B A :2.5 #0.15 @Saba
+▁SA B A H :2.5 #0.15 @Saba
+▁SO B A :2.5 #0.15 @Saba
+▁S O B A :2.5 #0.15 @Saba
+▁SU B A :2.5 #0.15 @Saba
+▁S U B A :2.5 #0.15 @Saba
+▁SE B A :2.5 #0.15 @Saba
+▁SA B O :2.5 #0.15 @Saba
+▁S A B O :2.5 #0.15 @Saba
+▁SA ▁BA :2.0 #0.25 @Saba
+▁SO ▁BA :2.0 #0.25 @Saba
+▁SU ▁BA :2.0 #0.25 @Saba

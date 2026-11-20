@@ -1,0 +1,53 @@
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+.venv/
+env/
+venv/
+ENV/
+
+# Type Checking & Testing Caches
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local SQLite Database & Logs
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.log
+
+# Audio recordings & test outputs
+captured_*.wav
+output.wav
+test_*.wav
+
+# AI Model Checkpoints & Large Binaries
+ai_models/
+
+# Scratch & Temporary Folders
+tmp/
+.temp/
