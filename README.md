@@ -230,7 +230,7 @@ saba-ai/
    ```
 2. **Launch the RDP v1.0 host server:**
    ```bash
-   python -m server
+   python server/main.py
    ```
 3. **Interactive CLI Command Reference:**
    ```text
