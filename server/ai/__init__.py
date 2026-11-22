@@ -1,7 +1,6 @@
 """RoboDesk AI pipelines: Speech Recognition (ASR), Text-to-Speech (TTS), LLM & NLP."""
 from server.ai.asr import DropNeMoWarnings, ShenavaASRManager, StreamingVAD, silence_nemo_loggers
 from server.ai.assistant import AssistantState, RoboDeskAssistant
-from server.ai.kws import SherpaKWSManager
 from server.ai.llm import ChatManager, warmup_llm
 from server.ai.text_processor import (
     detect_wake_word,
@@ -20,7 +19,6 @@ __all__ = [
     'PocketTTSEngine',
     'RoboDeskAssistant',
     'ShenavaASRManager',
-    'SherpaKWSManager',
     'StreamingVAD',
     'detect_wake_word',
     'extract_face_tag',

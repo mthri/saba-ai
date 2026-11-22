@@ -26,10 +26,6 @@ async def main() -> None:
     print('===========================================================')
 
     # Preload and warm up AI models
-    print('[*] Loading Sherpa-ONNX Wake-Word (KWS) engine...')
-    from server.ai.kws import SherpaKWSManager
-    _ = SherpaKWSManager()
-
     print('[*] Loading NeMo ASR and Silero VAD models...')
     asr_mgr = ShenavaASRManager()
 
