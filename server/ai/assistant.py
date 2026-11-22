@@ -11,6 +11,7 @@ from server.ai.llm import ChatManager
 from server.ai.text_processor import detect_wake_word, extract_face_tag, is_exit_phrase
 from server.ai.tts import PocketTTSEngine, stream_sentences
 from server.config import (
+    ENABLE_KWS,
     FAREWELL_RESPONSES,
     SESSION_INACTIVITY_TIMEOUT_SEC,
     STANDBY_DISPLAY_BODY,
@@ -23,6 +24,7 @@ from server.utils.display import is_persian_text
 
 if TYPE_CHECKING:
     from server.ai.asr import ShenavaASRManager
+    from server.ai.kws import SherpaKWSManager
     from server.core.session import RobotSession
 
 
@@ -56,6 +58,18 @@ class RoboDeskAssistant:
         self._inactivity_task: asyncio.Task[None] | None = None
 
         self.vad = self.asr.create_streaming_vad(on_speech_start=self._on_speech_started)
+
+        # On-device Sherpa-ONNX streaming Wake-Word engine
+        self.kws: SherpaKWSManager | None = None
+        if ENABLE_KWS:
+            try:
+                from server.ai.kws import SherpaKWSManager
+
+                kws_mgr = SherpaKWSManager()
+                if kws_mgr.is_available:
+                    self.kws = kws_mgr
+            except Exception as exc:
+                print(f'[-] Warning: Could not initialize Sherpa-ONNX KWS: {exc}')
 
     def _on_speech_started(self) -> None:
         if self.state in (AssistantState.STANDBY, AssistantState.ACTIVE_LISTENING):
@@ -99,6 +113,8 @@ class RoboDeskAssistant:
         """Transition assistant from active conversation to standby/sleep."""
         self._cancel_inactivity_timer()
         self.state = AssistantState.STANDBY
+        if self.kws:
+            self.kws.reset()
 
         # Show notification on OLED display so the user knows Saba is in standby
         body_text = STANDBY_TIMEOUT_DISPLAY_BODY if reason == 'timeout' else STANDBY_DISPLAY_BODY
@@ -157,6 +173,8 @@ class RoboDeskAssistant:
             self.state = AssistantState.ACTIVE_LISTENING
 
         self.vad.reset()
+        if self.state == AssistantState.STANDBY and self.kws:
+            self.kws.reset()
         listening_state_name = 'ACTIVE_LISTENING' if self.state == AssistantState.ACTIVE_LISTENING else 'STANDBY'
         face_name = 'normal' if self.state == AssistantState.ACTIVE_LISTENING else 'sleepy'
 
@@ -174,6 +192,28 @@ class RoboDeskAssistant:
         except Exception as exc:
             print(f'[-] Error disabling mic capture: {exc}')
 
+    async def handle_kws_wake_up(self, keyword: str) -> None:
+        """Instantly wake up assistant on Sherpa-ONNX wake-word detection with zero ASR overhead."""
+        self._cancel_inactivity_timer()
+        self.state = AssistantState.ACTIVE_LISTENING
+        print(f'[+] Instant wake-up triggered by KWS ({keyword})! Setting face to happy...')
+
+        # Visual feedback on robot OLED
+        try:
+            await self.session.send_request('display.clear_text')
+            await self.session.send_request('face.set_expression', {'name': 'happy', 'duration_ms': 1200})
+        except Exception:
+            pass
+
+        # Speak friendly wake greeting
+        greeting = random.choice(WAKE_GREETINGS)
+        await self.speak_phrase(greeting, emotion='talking')
+
+        # Now in active conversation, listen for user queries
+        self.state = AssistantState.ACTIVE_LISTENING
+        await self.start_listening(mode=AssistantState.ACTIVE_LISTENING)
+        self._reset_inactivity_timer()
+
     def feed_mic_audio(self, pcm_chunk: bytes) -> None:
         """Process incoming raw PCM chunks from the robot microphone."""
         if not self.auto_chat_enabled:
@@ -183,6 +223,18 @@ class RoboDeskAssistant:
         if self.state not in (AssistantState.STANDBY, AssistantState.ACTIVE_LISTENING):
             return
 
+        # 1. In STANDBY with KWS active: evaluate only lightweight KWS (1 thread, ~1% CPU)
+        #    NeMo ASR is NEVER called in standby, avoiding CPU spikes!
+        if self.state == AssistantState.STANDBY and self.kws and self.kws.is_available:
+            detected = self.kws.process_pcm_chunk(pcm_chunk)
+            if detected:
+                print(f'[+] Sherpa-ONNX KWS spotted wake-word "{detected}"! Activating Saba AI...')
+                if self._current_task and not self._current_task.done():
+                    self._current_task.cancel()
+                self._current_task = asyncio.create_task(self.handle_kws_wake_up(detected))
+            return
+
+        # 2. In ACTIVE_LISTENING mode (or fallback STANDBY if KWS unavailable):
         utterance = self.vad.process_pcm_chunk(pcm_chunk)
         if utterance is not None:
             if self._current_task and not self._current_task.done():

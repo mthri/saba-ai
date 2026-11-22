@@ -21,6 +21,10 @@ import torch
 from nemo.utils import logging as nemo_logging
 from silero_vad import load_silero_vad
 
+# Limit PyTorch CPU threads so inference does not monopolize all CPU cores
+if not torch.cuda.is_available():
+    torch.set_num_threads(min(2, os.cpu_count() or 1))
+
 from server.config import (
     ASR_MODEL_PATH,
     SAMPLE_RATE,
