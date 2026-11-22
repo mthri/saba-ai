@@ -24,10 +24,59 @@ def resample_24k_to_16k(audio_24k: np.ndarray) -> np.ndarray:
     return scipy.signal.resample_poly(audio_24k, 2, 3).astype(np.float32)
 
 
-def float_to_pcm16_bytes(audio: np.ndarray) -> bytes:
+def float_to_pcm16_bytes(
+    audio: np.ndarray,
+    normalize: bool = False,
+    target_speech_rms: float = 0.22,
+    max_peak: float = 0.95,
+) -> bytes:
     """Convert float32 waveform [-1.0, 1.0] to 16-bit signed little-endian PCM bytes."""
+    if normalize:
+        audio = normalize_speech_audio(audio, target_speech_rms=target_speech_rms, max_peak=max_peak)
     clipped = np.clip(audio, -1.0, 1.0)
     return (clipped * 32767.0).astype('<i2').tobytes()
+
+
+def normalize_speech_audio(
+    audio: np.ndarray,
+    target_speech_rms: float = 0.22,
+    max_peak: float = 0.95,
+) -> np.ndarray:
+    """Normalize speech waveform to optimal broadcast loudness with transparent soft-knee limiting.
+
+    Balances active speech RMS energy to match standard reference volume while preventing clipping.
+    """
+    if len(audio) == 0:
+        return np.zeros(0, dtype=np.float32)
+
+    audio_f32 = np.asarray(audio, dtype=np.float32)
+    abs_audio = np.abs(audio_f32)
+    peak = float(np.max(abs_audio))
+    if peak < 1e-5:
+        return audio_f32
+
+    # Identify active speech segments (ignoring pause/silence)
+    p95 = float(np.percentile(abs_audio, 95))
+    thresh = max(0.01, p95 * 0.15)
+    active = audio_f32[abs_audio > thresh]
+    active_rms = float(np.sqrt(np.mean(active**2))) if len(active) > 0 else float(np.sqrt(np.mean(audio_f32**2)))
+
+    if active_rms < 1e-5:
+        return audio_f32
+
+    gain = target_speech_rms / active_rms
+    gain = min(gain, 6.0)
+    scaled = audio_f32 * gain
+
+    # Soft-knee limiter: smooth compression above 75% of max_peak to avoid hard clipping
+    threshold = max_peak * 0.75
+    over = np.abs(scaled) > threshold
+    if np.any(over):
+        signs = np.sign(scaled)
+        headroom = max_peak - threshold
+        scaled[over] = signs[over] * (threshold + headroom * np.tanh((np.abs(scaled[over]) - threshold) / headroom))
+
+    return np.clip(scaled, -max_peak, max_peak).astype(np.float32)
 
 
 def trim_silence(

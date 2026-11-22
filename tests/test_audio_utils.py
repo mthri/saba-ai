@@ -11,6 +11,7 @@ from server.utils.audio import (
     float_to_pcm16_bytes,
     generate_melody_pcm,
     load_pcm_from_wav,
+    normalize_speech_audio,
     resample_24k_to_16k,
     save_pcm_to_wav,
     trim_silence,
@@ -83,6 +84,27 @@ class TestAudioUtils(unittest.TestCase):
         finally:
             if tmp_path.exists():
                 tmp_path.unlink()
+
+    def test_normalize_speech_audio(self) -> None:
+        # 1. Quiet audio gets boosted towards target RMS
+        t = np.linspace(0, 1, 16000, endpoint=False, dtype=np.float32)
+        quiet_signal = np.sin(2 * np.pi * 300 * t) * 0.05
+        norm = normalize_speech_audio(quiet_signal, target_speech_rms=0.22, max_peak=0.95)
+        self.assertGreater(float(np.max(np.abs(norm))), float(np.max(np.abs(quiet_signal))))
+        self.assertLessEqual(float(np.max(np.abs(norm))), 0.95)
+
+        # 2. Loud signal with spike is smoothly limited under max_peak
+        spike_signal = np.sin(2 * np.pi * 300 * t) * 0.8
+        spike_signal[500] = 1.5
+        norm_spike = normalize_speech_audio(spike_signal, target_speech_rms=0.22, max_peak=0.95)
+        self.assertLessEqual(float(np.max(np.abs(norm_spike))), 0.95)
+
+        # 3. Empty and near-zero signals
+        empty = normalize_speech_audio(np.zeros(0, dtype=np.float32))
+        self.assertEqual(len(empty), 0)
+
+        silence = normalize_speech_audio(np.full(100, 1e-7, dtype=np.float32))
+        self.assertLess(float(np.max(np.abs(silence))), 1e-4)
 
 
 if __name__ == '__main__':

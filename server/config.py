@@ -180,4 +180,7 @@ TTS_MAX_TOKENS: int = 25
 TTS_MIN_TOKENS: int = 8
 TTS_CHUNK_PAUSE_SECONDS: float = 0.12
 TTS_JOIN_SECONDS: float = 0.10
+TTS_NORMALIZE_AUDIO: bool = True
+TTS_TARGET_SPEECH_RMS: float = 0.22  # Target speech RMS for optimal volume matching reference audio (~ -15 dBFS)
+TTS_MAX_PEAK: float = 0.95
 USE_CUDA_TTS: bool = False

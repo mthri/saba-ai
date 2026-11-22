@@ -20,16 +20,20 @@ from server.config import (
     TTS_CHUNK_PAUSE_SECONDS,
     TTS_EOS_THRESHOLD,
     TTS_JOIN_SECONDS,
+    TTS_MAX_PEAK,
     TTS_MAX_TOKENS,
     TTS_MIN_TOKENS,
     TTS_MODEL_DIR,
+    TTS_NORMALIZE_AUDIO,
     TTS_SAMPLE_RATE,
+    TTS_TARGET_SPEECH_RMS,
     TTS_TEMPERATURE,
     TTS_VOICE_PATH,
     USE_CUDA_TTS,
 )
 from server.utils.audio import (
     float_to_pcm16_bytes,
+    normalize_speech_audio,
     resample_24k_to_16k,
     trim_silence,
 )
@@ -283,6 +287,12 @@ class PocketTTSEngine:
 
         full_24k = np.concatenate(audio_parts)
         full_16k = resample_24k_to_16k(full_24k)
+        if TTS_NORMALIZE_AUDIO:
+            full_16k = normalize_speech_audio(
+                full_16k,
+                target_speech_rms=TTS_TARGET_SPEECH_RMS,
+                max_peak=TTS_MAX_PEAK,
+            )
         return float_to_pcm16_bytes(full_16k)
 
     async def async_synthesize_sentence(self, text: str) -> bytes:
