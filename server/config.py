@@ -157,6 +157,28 @@ VAD_MIN_RMS_ENERGY: float = 0.012  # Noise floor threshold
 USE_CUDA_ASR: bool = False
 
 # ============================================================
+# KWS (KEYWORD SPOTTER / WAKE WORD) CONFIGURATION (Sherpa-ONNX)
+# ============================================================
+def resolve_kws_dir() -> Path:
+    """Finds the Sherpa-ONNX KWS model directory."""
+    candidates = [
+        AI_MODELS_DIR / 'kws',
+        BASE_DIR / 'android/app/src/main/assets/kws',
+        BASE_DIR / 'ai_models/kws',
+    ]
+    for c in candidates:
+        if c.exists() and (c / 'encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx').exists():
+            return c.resolve()
+    return candidates[0]
+
+KWS_MODEL_DIR: Path = resolve_kws_dir()
+KWS_SCORE: float = float(os.getenv('ROBODESK_KWS_SCORE', '2.5'))
+KWS_THRESHOLD: float = float(os.getenv('ROBODESK_KWS_THRESHOLD', '0.15'))
+KWS_MAX_ACTIVE_PATHS: int = int(os.getenv('ROBODESK_KWS_MAX_PATHS', '4'))
+KWS_NUM_THREADS: int = int(os.getenv('ROBODESK_KWS_THREADS', '2'))
+ENABLE_KWS: bool = os.getenv('ROBODESK_ENABLE_KWS', 'true').lower() in ('true', '1', 'yes')
+
+# ============================================================
 # TTS CONFIGURATION (Pocket TTS)
 # ============================================================
 def resolve_tts_dir() -> Path:

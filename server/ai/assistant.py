@@ -11,6 +11,7 @@ from server.ai.llm import ChatManager
 from server.ai.text_processor import detect_wake_word, extract_face_tag, is_exit_phrase
 from server.ai.tts import PocketTTSEngine, stream_sentences
 from server.config import (
+    ENABLE_KWS,
     FAREWELL_RESPONSES,
     SESSION_INACTIVITY_TIMEOUT_SEC,
     STANDBY_DISPLAY_BODY,
@@ -23,6 +24,7 @@ from server.utils.display import is_persian_text
 
 if TYPE_CHECKING:
     from server.ai.asr import ShenavaASRManager
+    from server.ai.kws import SherpaKWSManager
     from server.core.session import RobotSession
 
 
@@ -56,6 +58,20 @@ class RoboDeskAssistant:
         self._inactivity_task: asyncio.Task[None] | None = None
 
         self.vad = self.asr.create_streaming_vad(on_speech_start=self._on_speech_started)
+
+        # On-device Sherpa-ONNX streaming Wake-Word engine
+        self.kws: SherpaKWSManager | None = None
+        if ENABLE_KWS:
+            try:
+                from server.ai.kws import SherpaKWSManager
+
+                kws_mgr = SherpaKWSManager()
+                if kws_mgr.is_available:
+                    self.kws = kws_mgr
+            except Exception as exc:
+                print(f'[-] Warning: Could not initialize Sherpa-ONNX KWS: {exc}')
+
+        self._kws_detected_during_utterance: bool = False
 
     def _on_speech_started(self) -> None:
         if self.state in (AssistantState.STANDBY, AssistantState.ACTIVE_LISTENING):
@@ -99,6 +115,9 @@ class RoboDeskAssistant:
         """Transition assistant from active conversation to standby/sleep."""
         self._cancel_inactivity_timer()
         self.state = AssistantState.STANDBY
+        self._kws_detected_during_utterance = False
+        if self.kws:
+            self.kws.reset()
 
         # Show notification on OLED display so the user knows Saba is in standby
         body_text = STANDBY_TIMEOUT_DISPLAY_BODY if reason == 'timeout' else STANDBY_DISPLAY_BODY
@@ -157,6 +176,9 @@ class RoboDeskAssistant:
             self.state = AssistantState.ACTIVE_LISTENING
 
         self.vad.reset()
+        if self.state == AssistantState.STANDBY and self.kws:
+            self.kws.reset()
+            self._kws_detected_during_utterance = False
         listening_state_name = 'ACTIVE_LISTENING' if self.state == AssistantState.ACTIVE_LISTENING else 'STANDBY'
         face_name = 'normal' if self.state == AssistantState.ACTIVE_LISTENING else 'sleepy'
 
@@ -174,6 +196,14 @@ class RoboDeskAssistant:
         except Exception as exc:
             print(f'[-] Error disabling mic capture: {exc}')
 
+    async def _show_wake_feedback(self) -> None:
+        """Immediate visual/haptic response when KWS spots wake word."""
+        try:
+            await self.session.send_request('display.clear_text')
+            await self.session.send_request('face.set_expression', {'name': 'happy', 'duration_ms': 1200})
+        except Exception:
+            pass
+
     def feed_mic_audio(self, pcm_chunk: bytes) -> None:
         """Process incoming raw PCM chunks from the robot microphone."""
         if not self.auto_chat_enabled:
@@ -182,6 +212,14 @@ class RoboDeskAssistant:
         # Only process audio when listening in standby or active conversation
         if self.state not in (AssistantState.STANDBY, AssistantState.ACTIVE_LISTENING):
             return
+
+        # In STANDBY mode, stream chunk into lightweight Sherpa-ONNX KWS
+        if self.state == AssistantState.STANDBY and self.kws and self.kws.is_available:
+            detected = self.kws.process_pcm_chunk(pcm_chunk)
+            if detected:
+                print(f'[+] Sherpa-ONNX KWS spotted wake-word "{detected}"!')
+                self._kws_detected_during_utterance = True
+                asyncio.create_task(self._show_wake_feedback())
 
         utterance = self.vad.process_pcm_chunk(pcm_chunk)
         if utterance is not None:
@@ -192,6 +230,19 @@ class RoboDeskAssistant:
     async def handle_utterance(self, audio_data: np.ndarray) -> None:
         """Handle captured speech utterance through Wake-word check, ASR, LLM, and TTS."""
         previous_state = self.state
+        was_kws_spotted = self._kws_detected_during_utterance
+        self._kws_detected_during_utterance = False
+
+        # In STANDBY mode with KWS active:
+        # If KWS did NOT spot the wake-word during this utterance, skip heavy ASR entirely!
+        if previous_state == AssistantState.STANDBY and self.kws and self.kws.is_available and not was_kws_spotted:
+            print('[-] [STANDBY] Speech ignored by Sherpa-ONNX KWS (Wake word "صبا" not detected). NeMo ASR skipped.')
+            try:
+                await self.session.send_request('face.blink')
+            except Exception:
+                pass
+            return
+
         self.state = AssistantState.PROCESSING_STT
         await self.stop_listening()
 
@@ -201,6 +252,15 @@ class RoboDeskAssistant:
         user_text = await self.asr.transcribe(audio_data)
         if not user_text or not user_text.strip():
             print('[-] Silence or unrecognized speech. Resuming.')
+            if previous_state == AssistantState.STANDBY and was_kws_spotted:
+                # User called "صبا" alone and paused; speak friendly greeting!
+                greeting = random.choice(WAKE_GREETINGS)
+                await self.speak_phrase(greeting, emotion='talking')
+                self.state = AssistantState.ACTIVE_LISTENING
+                await self.start_listening(mode=AssistantState.ACTIVE_LISTENING)
+                self._reset_inactivity_timer()
+                return
+
             self.state = previous_state
             await self.start_listening()
             if self.state == AssistantState.ACTIVE_LISTENING:
@@ -212,7 +272,7 @@ class RoboDeskAssistant:
         # 2. Check Wake Word if currently in STANDBY mode
         if previous_state == AssistantState.STANDBY:
             is_addressed, query = detect_wake_word(user_text)
-            if not is_addressed:
+            if not was_kws_spotted and not is_addressed:
                 print(f'[-] [STANDBY] Speech ignored (Wake word "صبا/سبا" not addressed): "{user_text}"')
                 self.state = AssistantState.STANDBY
                 # Subtle blink to show sound detected without speaking
@@ -223,7 +283,7 @@ class RoboDeskAssistant:
                 await self.start_listening()
                 return
 
-            print('[+] Wake-word detected! Activating Saba AI...')
+            print('[+] Wake-word confirmed! Activating Saba AI...')
             self.state = AssistantState.ACTIVE_LISTENING
 
             # If user said wake-word alone (e.g. "صبا" or "سلام صبا"):

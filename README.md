@@ -1,7 +1,7 @@
 # Saba AI (RoboDesk) 🤖🎙️
 
 **Saba AI (RoboDesk)** is an intelligent, voice-interactive desk companion robot. It combines custom ESP32 dual-core FreeRTOS embedded firmware with two interchangeable, fully supported host AI brain implementations:
-1. **Python Host Brain (Desktop / Linux / Server):** Local/offline-capable pipeline with Shenava ASR (NeMo), Ollama/OpenAI LLM, Pocket-TTS (Persian synthesis), Silero VAD, SQLite conversation persistence, and server-side Persian/Arabic OLED typography rendering.
+1. **Python Host Brain (Desktop / Linux / Server):** Local/offline-capable pipeline with on-device Sherpa-ONNX streaming Wake-Word engine ("صبا"), Shenava ASR (NeMo), Ollama/OpenAI LLM, Pocket-TTS (Persian synthesis), Silero VAD, SQLite conversation persistence, and server-side Persian/Arabic OLED typography rendering.
 2. **Android Host App (Mobile / Tablet):** Native modern Android application (Jetpack Compose) featuring an embedded RFC-6455 WebSocket host server, on-device Silero VAD & Sherpa-ONNX wake-word engine, direct multimodal audio-to-LLM pipeline (Gemini / OpenAI), Walkie-Talkie mode, live robot microphone eavesdropping, interactive 2D eye gaze control, and live hardware diagnostics.
 
 Both hosts run the unified **RoboDesk Protocol (RDP v1.0)** over WebSockets (`ws://<HOST_IP>:8765/ws/robot`), allowing the ESP32 robot to connect seamlessly to either a computer or an Android smartphone without any firmware modifications!
@@ -13,7 +13,7 @@ Both hosts run the unified **RoboDesk Protocol (RDP v1.0)** over WebSockets (`ws
 **صبا (Saba AI / RoboDesk)** یک ربات دستیار رومیزی هوشمند و تعاملی صوتی است. بخش سخت‌افزاری بر پایه میکروکنترلر دوهسته‌ای ESP32 و سیستم‌عامل بی‌درنگ FreeRTOS پیاده‌سازی شده و از طریق وب‌سوکت دوطرفه با هسته هوش مصنوعی (Host Brain) ارتباط برقرار می‌کند.
 
 پروژه صبا از دو نوع میزبان (Host) قدرتمند پشتیبانی می‌کند:
-1. **سرور پایتون (Python Host Brain):** مناسب اجرا روی لینوکس، ویندوز و سیستم‌های رومیزی، دارای پایپ‌لاین بومی تشخیص گفتار فارسی (Shenava ASR)، مدل‌های زبانی محلی (Ollama) یا ابری، موتور سنتز صدای فارسی (Pocket-TTS)، سیستم ذخیره‌سازی تاریخچه مکالمات در SQLite و ماژول رندر اختصاصی فونت‌های فارسی روی نمایشگر OLED با بیت‌مپ مونوکروم.
+1. **سرور پایتون (Python Host Brain):** مناسب اجرا روی لینوکس، ویندوز و سیستم‌های رومیزی، دارای موتور بومی تشخیص کلمه کلیدی «صبا» بر پایه Sherpa-ONNX (مشابه نسخه اندروید با تأخیر آنی و مصرف پردازنده نزدیک به صفر)، پایپ‌لاین تشخیص گفتار فارسی (Shenava ASR)، مدل‌های زبانی محلی (Ollama) یا ابری، موتور سنتز صدای فارسی (Pocket-TTS)، سیستم ذخیره‌سازی تاریخچه مکالمات در SQLite و ماژول رندر اختصاصی فونت‌های فارسی روی نمایشگر OLED با بیت‌مپ مونوکروم.
 2. **اپلیکیشن اندروید (Android Host Companion App):** پیاده‌سازی مدرن با Jetpack Compose که مستقیماً روی گوشی همراه اجرا شده و یک سرور وب‌سوکت RFC-6455 داخلی روی پورت ۸۷۶۵ بالا می‌آورد. این اپلیکیشن مجهز به موتور تشخیص کلمه کلیدی «صبا» (Wake-Word) و Silero VAD کاملاً آفلاین و On-Device، اتصال مستقیم صوت به مدل‌های چندحالته (مانند Gemini 2.5 Flash و GPT-4o-Audio)، قابلیت واکی‌تاکی زنده، شنود زنده میکروفون ربات روی اسپیکر گوشی، تاچ‌پد تعاملی هدایت نگاه چشم‌ها و پنل عیب‌یابی و تله‌متری کامل سخت‌افزار است.
 
 ---
@@ -57,6 +57,7 @@ Both hosts run the unified **RoboDesk Protocol (RDP v1.0)** over WebSockets (`ws
 
 ### 3. Python Host Brain (`server/`)
 - **Integrated Persian AI Pipeline:**
+  - **Wake-Word Engine (KWS):** Fast, streaming on-device Sherpa-ONNX engine detecting "صبا" (Saba) with Zipformer int8 quantization, eliminating idle ASR compute overhead.
   - **ASR (Speech-to-Text):** `Shenava-Koochik` (`Reza2kn/Shenava-Koochik-v1.0` via NeMo/PyTorch).
   - **Voice Activity Detection:** Integrated Silero VAD for low-latency streaming speech segmentation.
   - **Conversational Intelligence:** LLM engine supporting local Ollama (`gemma`, etc.) and OpenAI-compatible endpoints with conversational memory.
@@ -182,6 +183,7 @@ saba-ai/
 │   │   └── streamer.py     # PacedAudioStreamer: Flow control to ESP32 jitter buffer
 │   ├── ai/                 # AI Engine pipelines
 │   │   ├── assistant.py    # RoboDeskAssistant: Voice conversation state machine
+│   │   ├── kws.py          # Sherpa-ONNX streaming Wake-Word (KWS) engine
 │   │   ├── asr.py          # Shenava ASR & Silero Streaming VAD
 │   │   ├── tts.py          # Pocket TTS Persian speech synthesis
 │   │   ├── llm.py          # LLM engine (Ollama/OpenAI) with Queen Saba persona
@@ -194,6 +196,7 @@ saba-ai/
 │   └── cli/                # Interactive terminal interface
 │       └── console.py      # Full-featured interactive CLI shell & command handler
 ├── tests/                  # Automated unit and integration test suite
+│   ├── test_kws.py         # Unit tests for Sherpa-ONNX streaming wake-word detection
 │   ├── test_nlp.py         # Unit tests for text normalization, wake-word, face tags
 │   ├── test_audio_utils.py # Unit tests for resampling, tone generation & WAV I/O
 │   ├── test_database.py    # Unit tests for conversation & message persistence
@@ -203,7 +206,7 @@ saba-ai/
 ├── python_server/          # Backward-compatibility shims for existing workflows
 ├── arduino/
 │   └── main.ino            # Arduino IDE legacy sketch path
-└── ai_models/              # Local AI weights (Shenava ASR & Pocket TTS)
+└── ai_models/              # Local AI weights (Shenava ASR, Pocket TTS & Sherpa KWS)
 ```
 
 ---
